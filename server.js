@@ -47,13 +47,115 @@ app.get("/pix", async (req, res) => {
     );
 
     ultimoPagamentoId = response.data.id;
+    const qrCodeBase64 = response.data.point_of_interaction.transaction_data.qr_code_base64;
+    const pixCopiaCola = response.data.point_of_interaction.transaction_data.qr_code;
 
-    res.json({
-      id: response.data.id,
-      status: response.data.status,
-      qr_code: response.data.point_of_interaction.transaction_data.qr_code,
-      qr_code_base64: response.data.point_of_interaction.transaction_data.qr_code_base64
-    });
+    res.send(`
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pagamento PIX</title>
+<style>
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #07162e;
+    color: white;
+    text-align: center;
+  }
+  .card {
+    max-width: 420px;
+    margin: 30px auto;
+    background: #0b2347;
+    border-radius: 18px;
+    padding: 25px;
+    box-shadow: 0 0 20px #00aaff;
+  }
+  h1 {
+    color: #00e5ff;
+    margin-bottom: 5px;
+  }
+  .valor {
+    font-size: 32px;
+    color: #00ff66;
+    font-weight: bold;
+    margin: 15px 0;
+  }
+  img {
+    width: 300px;
+    max-width: 90%;
+    background: white;
+    padding: 12px;
+    border-radius: 12px;
+  }
+  textarea {
+    width: 100%;
+    height: 90px;
+    margin-top: 15px;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 14px;
+  }
+  button {
+    margin-top: 15px;
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 10px;
+    background: #00c853;
+    color: white;
+    font-size: 22px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  .status {
+    margin-top: 18px;
+    font-size: 18px;
+    color: #ffeb3b;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>PAGAMENTO VIA PIX</h1>
+    <p>Escaneie o QR Code ou copie o código PIX</p>
+    <div class="valor">R$ 8,00</div>
+
+    <img src="data:image/png;base64,${qrCodeBase64}" alt="QR Code PIX">
+
+    <textarea id="pixCode" readonly>${pixCopiaCola}</textarea>
+
+    <button onclick="copiarPix()">COPIAR PIX</button>
+
+    <div class="status" id="status">Aguardando pagamento...</div>
+  </div>
+
+<script>
+function copiarPix() {
+  const texto = document.getElementById("pixCode");
+  texto.select();
+  texto.setSelectionRange(0, 99999);
+  document.execCommand("copy");
+  alert("Código PIX copiado!");
+}
+
+setInterval(async () => {
+  try {
+    const r = await fetch("/status");
+    const j = await r.json();
+
+    if (j.pagamentoAprovado) {
+      document.getElementById("status").innerText = "PAGAMENTO APROVADO!";
+      document.getElementById("status").style.color = "#00ff66";
+    }
+  } catch (e) {}
+}, 3000);
+</script>
+</body>
+</html>
+    `);
 
   } catch (erro) {
     res.status(500).json({
