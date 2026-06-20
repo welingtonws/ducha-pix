@@ -10,11 +10,34 @@ const ACCESS_TOKEN = process.env.MERCADO_PAGO_ACCESS_TOKEN;
 let ultimoPagamentoId = null;
 let pagamentoAprovado = false;
 
-async function criarPix() {
+function valorPixSeguro(req) {
+  let valor = parseFloat(req.query.valor);
+
+  if (isNaN(valor)) valor = 8;
+  if (valor < 5) valor = 5;
+  if (valor > 50) valor = 50;
+
+  return Number(valor.toFixed(2));
+}
+
+app.get("/", (req, res) => {
+  res.send("Servidor PIX da Ducha Online");
+});
+
+app.get("/status", (req, res) => {
+  res.json({
+    sistema: "DUCHA PIX",
+    online: true,
+    ultimoPagamentoId,
+    pagamentoAprovado
+  });
+});
+
+async function criarPix(valorPix) {
   const response = await axios.post(
     "https://api.mercadopago.com/v1/payments",
     {
-      transaction_amount: 8,
+      transaction_amount: valorPix,
       description: "Banho Ducha",
       payment_method_id: "pix",
       payer: {
@@ -36,27 +59,16 @@ async function criarPix() {
   return response.data;
 }
 
-app.get("/", (req, res) => {
-  res.send("Servidor PIX da Ducha Online");
-});
-
-app.get("/status", (req, res) => {
-  res.json({
-    sistema: "DUCHA PIX",
-    online: true,
-    ultimoPagamentoId,
-    pagamentoAprovado
-  });
-});
-
 app.get("/pix-json", async (req, res) => {
   try {
-    const pix = await criarPix();
+    const valorPix = valorPixSeguro(req);
+    const data = await criarPix(valorPix);
 
     res.json({
-      id: pix.id,
-      status: pix.status,
-      qr_code: pix.point_of_interaction.transaction_data.qr_code
+      id: data.id,
+      status: data.status,
+      valor: valorPix,
+      qr_code: data.point_of_interaction.transaction_data.qr_code
     });
   } catch (erro) {
     res.status(500).json({
@@ -68,13 +80,11 @@ app.get("/pix-json", async (req, res) => {
 
 app.get("/pix", async (req, res) => {
   try {
-    const pix = await criarPix();
+    const valorPix = valorPixSeguro(req);
+    const data = await criarPix(valorPix);
 
-    const qrCodeBase64 =
-      pix.point_of_interaction.transaction_data.qr_code_base64;
-
-    const pixCopiaCola =
-      pix.point_of_interaction.transaction_data.qr_code;
+    const qrBase64 = data.point_of_interaction.transaction_data.qr_code_base64;
+    const qrCode = data.point_of_interaction.transaction_data.qr_code;
 
     res.send(`
 <!DOCTYPE html>
@@ -83,47 +93,39 @@ app.get("/pix", async (req, res) => {
 <meta charset="UTF-8">
 <title>Pagamento PIX</title>
 <style>
-body{margin:0;font-family:Arial;background:#07162e;color:white;text-align:center}
-.card{max-width:420px;margin:30px auto;background:#0b2347;border-radius:18px;padding:25px;box-shadow:0 0 20px #00aaff}
+body{margin:0;background:#06152b;color:white;font-family:Arial;text-align:center}
+.card{max-width:520px;margin:40px auto;background:#0b2447;padding:30px;border-radius:18px;box-shadow:0 0 25px #00d9ff}
 h1{color:#00e5ff}
-.valor{font-size:32px;color:#00ff66;font-weight:bold}
-img{width:300px;max-width:90%;background:white;padding:12px;border-radius:12px}
-textarea{width:100%;height:90px;margin-top:15px;border-radius:8px;padding:10px}
-button{margin-top:15px;width:100%;padding:15px;border:0;border-radius:10px;background:#00c853;color:white;font-size:22px;font-weight:bold}
-.status{margin-top:18px;font-size:18px;color:#ffeb3b}
+.valor{font-size:36px;color:#00ff7f;font-weight:bold}
+img{background:white;padding:15px;border-radius:12px;width:320px}
+textarea{width:95%;height:95px;margin-top:20px;border-radius:8px;padding:10px}
+button{margin-top:15px;width:95%;padding:18px;border:0;border-radius:10px;background:#00c853;color:white;font-size:24px;font-weight:bold}
+#status{margin-top:20px;color:#00ff7f;font-size:22px}
 </style>
 </head>
 <body>
 <div class="card">
 <h1>PAGAMENTO VIA PIX</h1>
 <p>Escaneie o QR Code ou copie o código PIX</p>
-<div class="valor">R$ 8,00</div>
-<img src="data:image/png;base64,${qrCodeBase64}">
-<textarea id="pixCode" readonly>${pixCopiaCola}</textarea>
-<button onclick="copiarPix()">COPIAR PIX</button>
-<div class="status" id="status">Aguardando pagamento...</div>
+<div class="valor">R$ ${valorPix.toFixed(2).replace(".", ",")}</div>
+<img src="data:image/png;base64,${qrBase64}">
+<textarea id="codigo">${qrCode}</textarea>
+<button onclick="navigator.clipboard.writeText(document.getElementById('codigo').value)">COPIAR PIX</button>
+<div id="status">Aguardando pagamento...</div>
 </div>
 
 <script>
-function copiarPix(){
-  const texto=document.getElementById("pixCode");
-  texto.select();
-  document.execCommand("copy");
-  alert("Código PIX copiado!");
-}
-
 setInterval(async()=>{
-  const r=await fetch("/status");
-  const j=await r.json();
-  if(j.pagamentoAprovado){
-    document.getElementById("status").innerText="PAGAMENTO APROVADO!";
-    document.getElementById("status").style.color="#00ff66";
+  const r = await fetch('/status');
+  const d = await r.json();
+  if(d.pagamentoAprovado){
+    document.getElementById('status').innerText='PAGAMENTO APROVADO!';
   }
 },3000);
 </script>
 </body>
 </html>
-`);
+    `);
   } catch (erro) {
     res.status(500).json({
       erro: true,
