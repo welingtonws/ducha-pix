@@ -40,8 +40,10 @@ app.get("/pix", async (req, res) => {
             },
             {
                 headers: {
-                    Authorization: `Bearer ${ACCESS_TOKEN}`,
-                    "Content-Type": "application/json"
+                       Authorization: `Bearer ${ACCESS_TOKEN}`,
+                      "Content-Type": "application/json",
+                     "X-Idempotency-Key": `ducha-${Date.now()}-${Math.floor(Math.random() * 100000)}`
+
                 }
             }
         );
