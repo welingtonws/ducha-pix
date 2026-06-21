@@ -27,7 +27,6 @@ function salvarDados() {
       pagamentosEntregues,
       historicoPagamentos
     };
-
     fs.writeFileSync(ARQUIVO_DADOS, JSON.stringify(dados, null, 2));
     console.log("Dados salvos em dados.json");
   } catch (erro) {
@@ -76,6 +75,78 @@ function totalFaturado() {
   return historicoPagamentos.reduce((total, p) => total + Number(p.valor || 0), 0);
 }
 
+function extrairDataBR(dataTexto) {
+  try {
+    const apenasData = String(dataTexto || "").split(",")[0].trim();
+    const partes = apenasData.split("/");
+
+    if (partes.length !== 3) return null;
+
+    const dia = Number(partes[0]);
+    const mes = Number(partes[1]) - 1;
+    const ano = Number(partes[2]);
+
+    return new Date(ano, mes, dia);
+  } catch {
+    return null;
+  }
+}
+
+function mesmoDia(dataA, dataB) {
+  return (
+    dataA &&
+    dataB &&
+    dataA.getFullYear() === dataB.getFullYear() &&
+    dataA.getMonth() === dataB.getMonth() &&
+    dataA.getDate() === dataB.getDate()
+  );
+}
+
+function mesmoMes(dataA, dataB) {
+  return (
+    dataA &&
+    dataB &&
+    dataA.getFullYear() === dataB.getFullYear() &&
+    dataA.getMonth() === dataB.getMonth()
+  );
+}
+
+function resumoFinanceiro() {
+  const hoje = new Date();
+  const ontem = new Date();
+  ontem.setDate(hoje.getDate() - 1);
+
+  let totalHoje = 0;
+  let totalOntem = 0;
+  let totalMes = 0;
+  let banhosHoje = 0;
+
+  historicoPagamentos.forEach(p => {
+    const dataPagamento = extrairDataBR(p.data);
+    const valor = Number(p.valor || 0);
+
+    if (mesmoDia(dataPagamento, hoje)) {
+      totalHoje += valor;
+      banhosHoje++;
+    }
+
+    if (mesmoDia(dataPagamento, ontem)) {
+      totalOntem += valor;
+    }
+
+    if (mesmoMes(dataPagamento, hoje)) {
+      totalMes += valor;
+    }
+  });
+
+  return {
+    totalHoje,
+    totalOntem,
+    totalMes,
+    banhosHoje
+  };
+}
+
 function painelAutorizado(req) {
   const cookie = req.headers.cookie || "";
   return cookie.includes(`painel_token=${TOKEN_PAINEL}`);
@@ -114,19 +185,25 @@ button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;backgro
 }
 
 app.get("/", (req, res) => {
-  res.send("Servidor PIX da Ducha Online - V5.31");
+  res.send("Servidor PIX da Ducha Online - V5.32");
 });
 
 app.get("/status", (req, res) => {
+  const resumo = resumoFinanceiro();
+
   res.json({
     sistema: "DUCHA PIX",
-    versao: "5.31",
+    versao: "5.32",
     online: true,
     ultimoPagamentoId,
     pendentes: pagamentosPendentes.length,
     entregues: pagamentosEntregues.length,
     historico: historicoPagamentos.length,
-    totalFaturado: totalFaturado()
+    totalFaturado: totalFaturado(),
+    totalHoje: resumo.totalHoje,
+    totalOntem: resumo.totalOntem,
+    totalMes: resumo.totalMes,
+    banhosHoje: resumo.banhosHoje
   });
 });
 
@@ -313,9 +390,15 @@ app.get("/confirmar-liberacao", (req, res) => {
 });
 
 app.get("/historico", (req, res) => {
+  const resumo = resumoFinanceiro();
+
   res.json({
     total: historicoPagamentos.length,
     totalFaturado: totalFaturado(),
+    totalHoje: resumo.totalHoje,
+    totalOntem: resumo.totalOntem,
+    totalMes: resumo.totalMes,
+    banhosHoje: resumo.banhosHoje,
     pagamentos: historicoPagamentos
   });
 });
@@ -341,6 +424,8 @@ app.get("/painel", (req, res) => {
     return res.send(telaLogin(false));
   }
 
+  const resumo = resumoFinanceiro();
+
   const linhas = historicoPagamentos.map(p => `
     <tr>
       <td>${p.data}</td>
@@ -359,10 +444,11 @@ app.get("/painel", (req, res) => {
 <title>Painel Administrativo</title>
 <style>
 body{font-family:Arial;background:#06152b;color:white;margin:0;padding:15px}
-.card{max-width:1050px;margin:auto;background:#0b2447;padding:20px;border-radius:15px;box-shadow:0 0 20px #00d9ff55}
+.card{max-width:1150px;margin:auto;background:#0b2447;padding:20px;border-radius:15px;box-shadow:0 0 20px #00d9ff55}
 h1{text-align:center;color:#00e5ff}
 .info{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:15px 0}
 .box{background:#06152b;padding:12px 18px;border-radius:10px;font-size:18px;color:#ffd600}
+.box2{background:#092f2f;padding:12px 18px;border-radius:10px;font-size:18px;color:#00ffbf}
 button,.btn{display:inline-block;margin:8px;padding:12px 25px;border:0;border-radius:8px;background:#00aaff;color:white;font-weight:bold;font-size:17px;text-decoration:none}
 .acoes{text-align:center}
 table{width:100%;border-collapse:collapse;margin-top:20px}
@@ -376,19 +462,26 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
   h1{font-size:22px}
   table{font-size:12px}
   th,td{padding:7px}
-  .box{font-size:15px}
+  .box,.box2{font-size:15px}
 }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>Painel Administrativo - Ducha PIX V5.31</h1>
+  <h1>Painel Administrativo - Ducha PIX V5.32</h1>
 
   <div class="info">
     <div class="box">Pendentes: ${pagamentosPendentes.length}</div>
     <div class="box">Entregues: ${pagamentosEntregues.length}</div>
     <div class="box">Histórico: ${historicoPagamentos.length}</div>
-    <div class="box">Total: ${formatarMoeda(totalFaturado())}</div>
+    <div class="box">Total Geral: ${formatarMoeda(totalFaturado())}</div>
+  </div>
+
+  <div class="info">
+    <div class="box2">Hoje: ${formatarMoeda(resumo.totalHoje)}</div>
+    <div class="box2">Ontem: ${formatarMoeda(resumo.totalOntem)}</div>
+    <div class="box2">Mês: ${formatarMoeda(resumo.totalMes)}</div>
+    <div class="box2">Banhos Hoje: ${resumo.banhosHoje}</div>
   </div>
 
   <div class="acoes">
