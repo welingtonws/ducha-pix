@@ -161,18 +161,46 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-app.get("/liberar", (req, res) => {
-  if (pagamentoAprovado) {
-    pagamentoAprovado = false;
+app.get("/liberar", async (req, res) => {
+  try {
+    if (pagamentoAprovado) {
+      pagamentoAprovado = false;
+      return res.json({
+        liberar: true,
+        mensagem: "PAGAMENTO APROVADO"
+      });
+    }
 
-    res.json({
-      liberar: true,
-      mensagem: "PAGAMENTO APROVADO"
-    });
-  } else {
+    if (ultimoPagamentoId) {
+      const consulta = await axios.get(
+        `https://api.mercadopago.com/v1/payments/${ultimoPagamentoId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${ACCESS_TOKEN}`
+          }
+        }
+      );
+
+      if (consulta.data.status === "approved") {
+        pagamentoAprovado = false;
+        return res.json({
+          liberar: true,
+          mensagem: "PAGAMENTO APROVADO"
+        });
+      }
+    }
+
     res.json({
       liberar: false,
       mensagem: "AGUARDANDO PAGAMENTO"
+    });
+
+  } catch (erro) {
+    console.log("Erro liberar:", erro.response?.data || erro.message);
+
+    res.json({
+      liberar: false,
+      mensagem: "ERRO CONSULTA PAGAMENTO"
     });
   }
 });
