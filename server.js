@@ -3,10 +3,12 @@ const axios = require("axios");
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 3000;
 const ACCESS_TOKEN = process.env.MERCADO_PAGO_ACCESS_TOKEN;
 const SENHA_PAINEL = process.env.SENHA_PAINEL || "1234";
+const TOKEN_PAINEL = process.env.TOKEN_PAINEL || "ducha_pix_logado";
 
 let ultimoPagamentoId = null;
 let pagamentosPendentes = [];
@@ -30,6 +32,43 @@ function formatarMoeda(valor) {
 
 function totalFaturado() {
   return historicoPagamentos.reduce((total, p) => total + Number(p.valor || 0), 0);
+}
+
+function painelAutorizado(req) {
+  const cookie = req.headers.cookie || "";
+  return cookie.includes(`painel_token=${TOKEN_PAINEL}`);
+}
+
+function telaLogin(erro = false) {
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acesso ao Painel</title>
+<style>
+body{font-family:Arial;background:#06152b;color:white;margin:0;padding:20px;text-align:center}
+.card{max-width:420px;margin:80px auto;background:#0b2447;padding:25px;border-radius:15px;box-shadow:0 0 20px #00d9ff55}
+h1{color:#00e5ff}
+input{width:90%;padding:15px;border-radius:8px;border:0;font-size:22px;text-align:center;margin-top:15px}
+button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;background:#00aaff;color:white;font-size:20px;font-weight:bold}
+.erro{color:#ff5252;margin-top:15px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Painel Ducha PIX</h1>
+  <p>Digite a senha para acessar</p>
+  <form method="POST" action="/login-painel">
+    <input name="senha" type="password" placeholder="Senha" autocomplete="off">
+    <button type="submit">ENTRAR</button>
+  </form>
+  ${erro ? '<div class="erro">Senha incorreta</div>' : ''}
+</div>
+</body>
+</html>
+  `;
 }
 
 app.get("/", (req, res) => {
@@ -230,43 +269,25 @@ app.get("/historico", (req, res) => {
   });
 });
 
-app.get("/painel", (req, res) => {
-  const senha = String(req.query.senha || "");
+app.post("/login-painel", (req, res) => {
+  const senha = String(req.body.senha || "");
 
   if (senha !== SENHA_PAINEL) {
-    return res.send(`
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Acesso ao Painel</title>
-<style>
-body{font-family:Arial;background:#06152b;color:white;margin:0;padding:20px;text-align:center}
-.card{max-width:420px;margin:80px auto;background:#0b2447;padding:25px;border-radius:15px;box-shadow:0 0 20px #00d9ff55}
-h1{color:#00e5ff}
-input{width:90%;padding:15px;border-radius:8px;border:0;font-size:22px;text-align:center;margin-top:15px}
-button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;background:#00aaff;color:white;font-size:20px;font-weight:bold}
-.erro{color:#ff5252;margin-top:15px}
-</style>
-</head>
-<body>
-<div class="card">
-  <h1>Painel Ducha PIX</h1>
-  <p>Digite a senha para acessar</p>
-  <input id="senha" type="password" placeholder="Senha">
-  <button onclick="entrar()">ENTRAR</button>
-  ${senha ? '<div class="erro">Senha incorreta</div>' : ''}
-</div>
-<script>
-function entrar(){
-  const s = document.getElementById('senha').value;
-  window.location.href = '/painel?senha=' + encodeURIComponent(s);
-}
-</script>
-</body>
-</html>
-    `);
+    return res.send(telaLogin(true));
+  }
+
+  res.setHeader("Set-Cookie", `painel_token=${TOKEN_PAINEL}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+  res.redirect("/painel");
+});
+
+app.get("/sair-painel", (req, res) => {
+  res.setHeader("Set-Cookie", "painel_token=; Path=/; Max-Age=0");
+  res.redirect("/painel");
+});
+
+app.get("/painel", (req, res) => {
+  if (!painelAutorizado(req)) {
+    return res.send(telaLogin(false));
   }
 
   const linhas = historicoPagamentos.map(p => `
@@ -286,74 +307,18 @@ function entrar(){
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Painel Administrativo</title>
 <style>
-body{
-  font-family:Arial;
-  background:#06152b;
-  color:white;
-  margin:0;
-  padding:15px;
-}
-.card{
-  max-width:1050px;
-  margin:auto;
-  background:#0b2447;
-  padding:20px;
-  border-radius:15px;
-  box-shadow:0 0 20px #00d9ff55;
-}
-h1{
-  text-align:center;
-  color:#00e5ff;
-}
-.info{
-  display:flex;
-  gap:10px;
-  justify-content:center;
-  flex-wrap:wrap;
-  margin:15px 0;
-}
-.box{
-  background:#06152b;
-  padding:12px 18px;
-  border-radius:10px;
-  font-size:18px;
-  color:#ffd600;
-}
-button{
-  display:block;
-  margin:15px auto;
-  padding:12px 25px;
-  border:0;
-  border-radius:8px;
-  background:#00aaff;
-  color:white;
-  font-weight:bold;
-  font-size:17px;
-}
-table{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:20px;
-}
-th{
-  background:#00aaff;
-  color:white;
-  padding:12px;
-}
-td{
-  padding:12px;
-  border-bottom:1px solid #244;
-  text-align:center;
-}
-.ok{
-  color:#00ff7f;
-  font-weight:bold;
-}
-.vazio{
-  text-align:center;
-  color:#ffcc00;
-  padding:25px;
-}
+body{font-family:Arial;background:#06152b;color:white;margin:0;padding:15px}
+.card{max-width:1050px;margin:auto;background:#0b2447;padding:20px;border-radius:15px;box-shadow:0 0 20px #00d9ff55}
+h1{text-align:center;color:#00e5ff}
+.info{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:15px 0}
+.box{background:#06152b;padding:12px 18px;border-radius:10px;font-size:18px;color:#ffd600}
+button,.btn{display:inline-block;margin:8px;padding:12px 25px;border:0;border-radius:8px;background:#00aaff;color:white;font-weight:bold;font-size:17px;text-decoration:none}
+.acoes{text-align:center}
+table{width:100%;border-collapse:collapse;margin-top:20px}
+th{background:#00aaff;color:white;padding:12px}
+td{padding:12px;border-bottom:1px solid #244;text-align:center}
+.ok{color:#00ff7f;font-weight:bold}
+.vazio{text-align:center;color:#ffcc00;padding:25px}
 @media(max-width:600px){
   body{padding:8px}
   .card{padding:12px}
@@ -375,7 +340,10 @@ td{
     <div class="box">Total: ${formatarMoeda(totalFaturado())}</div>
   </div>
 
-  <button onclick="location.reload()">ATUALIZAR</button>
+  <div class="acoes">
+    <button onclick="location.reload()">ATUALIZAR</button>
+    <a class="btn" href="/sair-painel">SAIR</a>
+  </div>
 
   <table>
     <tr>
