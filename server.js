@@ -10,6 +10,7 @@ const ACCESS_TOKEN = process.env.MERCADO_PAGO_ACCESS_TOKEN;
 let ultimoPagamentoId = null;
 let pagamentosPendentes = [];
 let pagamentosEntregues = [];
+let historicoPagamentos = [];
 
 function valorPixSeguro(req) {
   let valor = parseFloat(req.query.valor);
@@ -29,7 +30,8 @@ app.get("/status", (req, res) => {
     online: true,
     ultimoPagamentoId,
     pendentes: pagamentosPendentes.length,
-    entregues: pagamentosEntregues.length
+    entregues: pagamentosEntregues.length,
+    historico: historicoPagamentos.length
   });
 });
 
@@ -168,6 +170,16 @@ app.get("/confirmar-liberacao", (req, res) => {
 
   if (!pagamentosEntregues.includes(pagamentoId)) {
     pagamentosEntregues.push(pagamentoId);
+
+    historicoPagamentos.unshift({
+      pagamentoId,
+      data: new Date().toLocaleString("pt-BR"),
+      status: "ENTREGUE"
+    });
+
+    if (historicoPagamentos.length > 100) {
+      historicoPagamentos.pop();
+    }
   }
 
   console.log("Ducha liberada confirmada:", pagamentoId);
@@ -176,7 +188,15 @@ app.get("/confirmar-liberacao", (req, res) => {
     ok: true,
     pagamentoId,
     pendentes: pagamentosPendentes.length,
-    entregues: pagamentosEntregues.length
+    entregues: pagamentosEntregues.length,
+    historico: historicoPagamentos.length
+  });
+});
+
+app.get("/historico", (req, res) => {
+  res.json({
+    total: historicoPagamentos.length,
+    pagamentos: historicoPagamentos
   });
 });
 
