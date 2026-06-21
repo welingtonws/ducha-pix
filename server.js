@@ -6,6 +6,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const ACCESS_TOKEN = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+const SENHA_PAINEL = process.env.SENHA_PAINEL || "1234";
 
 let ultimoPagamentoId = null;
 let pagamentosPendentes = [];
@@ -20,6 +21,17 @@ function valorPixSeguro(req) {
   return Number(valor.toFixed(2));
 }
 
+function formatarMoeda(valor) {
+  return Number(valor || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL"
+  });
+}
+
+function totalFaturado() {
+  return historicoPagamentos.reduce((total, p) => total + Number(p.valor || 0), 0);
+}
+
 app.get("/", (req, res) => {
   res.send("Servidor PIX da Ducha Online");
 });
@@ -31,7 +43,8 @@ app.get("/status", (req, res) => {
     ultimoPagamentoId,
     pendentes: pagamentosPendentes.length,
     entregues: pagamentosEntregues.length,
-    historico: historicoPagamentos.length
+    historico: historicoPagamentos.length,
+    totalFaturado: totalFaturado()
   });
 });
 
@@ -53,19 +66,27 @@ async function criarPix(valorPix) {
     }
   );
 
-  ultimoPagamentoId = response.data.id;
+  ultimoPagamentoId = String(response.data.id);
   return response.data;
 }
 
-function adicionarPendente(pagamentoId) {
+function adicionarPendente(pagamentoId, valor = null) {
   pagamentoId = String(pagamentoId);
 
   if (pagamentosEntregues.includes(pagamentoId)) return;
 
-  if (!pagamentosPendentes.includes(pagamentoId)) {
-    pagamentosPendentes.push(pagamentoId);
-    console.log("PIX aprovado pendente:", pagamentoId);
+  const jaExiste = pagamentosPendentes.find(p => p.id === pagamentoId);
+  if (!jaExiste) {
+    pagamentosPendentes.push({
+      id: pagamentoId,
+      valor: Number(valor || 0)
+    });
+    console.log("PIX aprovado pendente:", pagamentoId, "valor:", valor);
   }
+}
+
+function buscarPendente(pagamentoId) {
+  return pagamentosPendentes.find(p => p.id === String(pagamentoId));
 }
 
 app.get("/pix-json", async (req, res) => {
@@ -99,7 +120,7 @@ app.post("/webhook", async (req, res) => {
 
       if (consulta.data.status === "approved") {
         ultimoPagamentoId = String(pagamentoId);
-        adicionarPendente(pagamentoId);
+        adicionarPendente(pagamentoId, consulta.data.transaction_amount);
       }
     }
 
@@ -113,11 +134,12 @@ app.post("/webhook", async (req, res) => {
 app.get("/liberar", async (req, res) => {
   try {
     if (pagamentosPendentes.length > 0) {
-      const pagamentoId = pagamentosPendentes[0];
+      const pendente = pagamentosPendentes[0];
 
       return res.json({
         liberar: true,
-        pagamentoId,
+        pagamentoId: pendente.id,
+        valor: pendente.valor,
         mensagem: "PAGAMENTO APROVADO PENDENTE"
       });
     }
@@ -129,13 +151,14 @@ app.get("/liberar", async (req, res) => {
       );
 
       if (consulta.data.status === "approved") {
-        adicionarPendente(ultimoPagamentoId);
+        adicionarPendente(ultimoPagamentoId, consulta.data.transaction_amount);
 
-        const pagamentoId = pagamentosPendentes[0];
+        const pendente = pagamentosPendentes[0];
 
         return res.json({
           liberar: true,
-          pagamentoId,
+          pagamentoId: pendente.id,
+          valor: pendente.valor,
           mensagem: "PAGAMENTO APROVADO CONSULTA"
         });
       }
@@ -166,13 +189,17 @@ app.get("/confirmar-liberacao", (req, res) => {
     });
   }
 
-  pagamentosPendentes = pagamentosPendentes.filter(id => String(id) !== pagamentoId);
+  const pendente = buscarPendente(pagamentoId);
+  const valor = pendente ? Number(pendente.valor || 0) : 0;
+
+  pagamentosPendentes = pagamentosPendentes.filter(p => p.id !== pagamentoId);
 
   if (!pagamentosEntregues.includes(pagamentoId)) {
     pagamentosEntregues.push(pagamentoId);
 
     historicoPagamentos.unshift({
       pagamentoId,
+      valor,
       data: new Date().toLocaleString("pt-BR"),
       status: "ENTREGUE"
     });
@@ -187,24 +214,66 @@ app.get("/confirmar-liberacao", (req, res) => {
   res.json({
     ok: true,
     pagamentoId,
+    valor,
     pendentes: pagamentosPendentes.length,
     entregues: pagamentosEntregues.length,
-    historico: historicoPagamentos.length
+    historico: historicoPagamentos.length,
+    totalFaturado: totalFaturado()
   });
 });
 
 app.get("/historico", (req, res) => {
   res.json({
     total: historicoPagamentos.length,
+    totalFaturado: totalFaturado(),
     pagamentos: historicoPagamentos
   });
 });
 
 app.get("/painel", (req, res) => {
+  const senha = String(req.query.senha || "");
+
+  if (senha !== SENHA_PAINEL) {
+    return res.send(`
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acesso ao Painel</title>
+<style>
+body{font-family:Arial;background:#06152b;color:white;margin:0;padding:20px;text-align:center}
+.card{max-width:420px;margin:80px auto;background:#0b2447;padding:25px;border-radius:15px;box-shadow:0 0 20px #00d9ff55}
+h1{color:#00e5ff}
+input{width:90%;padding:15px;border-radius:8px;border:0;font-size:22px;text-align:center;margin-top:15px}
+button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;background:#00aaff;color:white;font-size:20px;font-weight:bold}
+.erro{color:#ff5252;margin-top:15px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Painel Ducha PIX</h1>
+  <p>Digite a senha para acessar</p>
+  <input id="senha" type="password" placeholder="Senha">
+  <button onclick="entrar()">ENTRAR</button>
+  ${senha ? '<div class="erro">Senha incorreta</div>' : ''}
+</div>
+<script>
+function entrar(){
+  const s = document.getElementById('senha').value;
+  window.location.href = '/painel?senha=' + encodeURIComponent(s);
+}
+</script>
+</body>
+</html>
+    `);
+  }
+
   const linhas = historicoPagamentos.map(p => `
     <tr>
       <td>${p.data}</td>
       <td>${p.pagamentoId}</td>
+      <td>${formatarMoeda(p.valor)}</td>
       <td class="ok">${p.status}</td>
     </tr>
   `).join("");
@@ -225,7 +294,7 @@ body{
   padding:15px;
 }
 .card{
-  max-width:950px;
+  max-width:1050px;
   margin:auto;
   background:#0b2447;
   padding:20px;
@@ -249,6 +318,17 @@ h1{
   border-radius:10px;
   font-size:18px;
   color:#ffd600;
+}
+button{
+  display:block;
+  margin:15px auto;
+  padding:12px 25px;
+  border:0;
+  border-radius:8px;
+  background:#00aaff;
+  color:white;
+  font-weight:bold;
+  font-size:17px;
 }
 table{
   width:100%;
@@ -278,8 +358,9 @@ td{
   body{padding:8px}
   .card{padding:12px}
   h1{font-size:22px}
-  table{font-size:13px}
-  th,td{padding:8px}
+  table{font-size:12px}
+  th,td{padding:7px}
+  .box{font-size:15px}
 }
 </style>
 </head>
@@ -291,15 +372,19 @@ td{
     <div class="box">Pendentes: ${pagamentosPendentes.length}</div>
     <div class="box">Entregues: ${pagamentosEntregues.length}</div>
     <div class="box">Histórico: ${historicoPagamentos.length}</div>
+    <div class="box">Total: ${formatarMoeda(totalFaturado())}</div>
   </div>
+
+  <button onclick="location.reload()">ATUALIZAR</button>
 
   <table>
     <tr>
       <th>Data</th>
       <th>ID PIX</th>
+      <th>Valor</th>
       <th>Status</th>
     </tr>
-    ${linhas || '<tr><td colspan="3" class="vazio">Nenhum pagamento registrado</td></tr>'}
+    ${linhas || '<tr><td colspan="4" class="vazio">Nenhum pagamento registrado</td></tr>'}
   </table>
 </div>
 </body>
