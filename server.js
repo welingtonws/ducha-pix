@@ -1,5 +1,7 @@
 const express = require("express");
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -7,13 +9,53 @@ app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 3000;
 const ACCESS_TOKEN = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-const SENHA_PAINEL = process.env.SENHA_PAINEL || "1234";
+const SENHA_PAINEL = process.env.SENHA_PAINEL || "231075";
 const TOKEN_PAINEL = process.env.TOKEN_PAINEL || "ducha_pix_logado";
+
+const ARQUIVO_DADOS = path.join(__dirname, "dados.json");
 
 let ultimoPagamentoId = null;
 let pagamentosPendentes = [];
 let pagamentosEntregues = [];
 let historicoPagamentos = [];
+
+function salvarDados() {
+  try {
+    const dados = {
+      ultimoPagamentoId,
+      pagamentosPendentes,
+      pagamentosEntregues,
+      historicoPagamentos
+    };
+
+    fs.writeFileSync(ARQUIVO_DADOS, JSON.stringify(dados, null, 2));
+    console.log("Dados salvos em dados.json");
+  } catch (erro) {
+    console.log("Erro ao salvar dados:", erro.message);
+  }
+}
+
+function carregarDados() {
+  try {
+    if (fs.existsSync(ARQUIVO_DADOS)) {
+      const bruto = fs.readFileSync(ARQUIVO_DADOS, "utf8");
+      const dados = JSON.parse(bruto);
+
+      ultimoPagamentoId = dados.ultimoPagamentoId || null;
+      pagamentosPendentes = dados.pagamentosPendentes || [];
+      pagamentosEntregues = dados.pagamentosEntregues || [];
+      historicoPagamentos = dados.historicoPagamentos || [];
+
+      console.log("Dados carregados de dados.json");
+    } else {
+      console.log("Arquivo dados.json ainda não existe. Iniciando vazio.");
+    }
+  } catch (erro) {
+    console.log("Erro ao carregar dados:", erro.message);
+  }
+}
+
+carregarDados();
 
 function valorPixSeguro(req) {
   let valor = parseFloat(req.query.valor);
@@ -72,12 +114,13 @@ button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;backgro
 }
 
 app.get("/", (req, res) => {
-  res.send("Servidor PIX da Ducha Online");
+  res.send("Servidor PIX da Ducha Online - V5.31");
 });
 
 app.get("/status", (req, res) => {
   res.json({
     sistema: "DUCHA PIX",
+    versao: "5.31",
     online: true,
     ultimoPagamentoId,
     pendentes: pagamentosPendentes.length,
@@ -106,6 +149,8 @@ async function criarPix(valorPix) {
   );
 
   ultimoPagamentoId = String(response.data.id);
+  salvarDados();
+
   return response.data;
 }
 
@@ -115,12 +160,15 @@ function adicionarPendente(pagamentoId, valor = null) {
   if (pagamentosEntregues.includes(pagamentoId)) return;
 
   const jaExiste = pagamentosPendentes.find(p => p.id === pagamentoId);
+
   if (!jaExiste) {
     pagamentosPendentes.push({
       id: pagamentoId,
       valor: Number(valor || 0)
     });
+
     console.log("PIX aprovado pendente:", pagamentoId, "valor:", valor);
+    salvarDados();
   }
 }
 
@@ -160,6 +208,7 @@ app.post("/webhook", async (req, res) => {
       if (consulta.data.status === "approved") {
         ultimoPagamentoId = String(pagamentoId);
         adicionarPendente(pagamentoId, consulta.data.transaction_amount);
+        salvarDados();
       }
     }
 
@@ -248,6 +297,8 @@ app.get("/confirmar-liberacao", (req, res) => {
     }
   }
 
+  salvarDados();
+
   console.log("Ducha liberada confirmada:", pagamentoId);
 
   res.json({
@@ -331,7 +382,7 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
 </head>
 <body>
 <div class="card">
-  <h1>Painel Administrativo - Ducha PIX</h1>
+  <h1>Painel Administrativo - Ducha PIX V5.31</h1>
 
   <div class="info">
     <div class="box">Pendentes: ${pagamentosPendentes.length}</div>
