@@ -200,6 +200,113 @@ app.get("/historico", (req, res) => {
   });
 });
 
+app.get("/painel", (req, res) => {
+  const linhas = historicoPagamentos.map(p => `
+    <tr>
+      <td>${p.data}</td>
+      <td>${p.pagamentoId}</td>
+      <td class="ok">${p.status}</td>
+    </tr>
+  `).join("");
+
+  res.send(`
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel Administrativo</title>
+<style>
+body{
+  font-family:Arial;
+  background:#06152b;
+  color:white;
+  margin:0;
+  padding:15px;
+}
+.card{
+  max-width:950px;
+  margin:auto;
+  background:#0b2447;
+  padding:20px;
+  border-radius:15px;
+  box-shadow:0 0 20px #00d9ff55;
+}
+h1{
+  text-align:center;
+  color:#00e5ff;
+}
+.info{
+  display:flex;
+  gap:10px;
+  justify-content:center;
+  flex-wrap:wrap;
+  margin:15px 0;
+}
+.box{
+  background:#06152b;
+  padding:12px 18px;
+  border-radius:10px;
+  font-size:18px;
+  color:#ffd600;
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:20px;
+}
+th{
+  background:#00aaff;
+  color:white;
+  padding:12px;
+}
+td{
+  padding:12px;
+  border-bottom:1px solid #244;
+  text-align:center;
+}
+.ok{
+  color:#00ff7f;
+  font-weight:bold;
+}
+.vazio{
+  text-align:center;
+  color:#ffcc00;
+  padding:25px;
+}
+@media(max-width:600px){
+  body{padding:8px}
+  .card{padding:12px}
+  h1{font-size:22px}
+  table{font-size:13px}
+  th,td{padding:8px}
+}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Painel Administrativo - Ducha PIX</h1>
+
+  <div class="info">
+    <div class="box">Pendentes: ${pagamentosPendentes.length}</div>
+    <div class="box">Entregues: ${pagamentosEntregues.length}</div>
+    <div class="box">Histórico: ${historicoPagamentos.length}</div>
+  </div>
+
+  <table>
+    <tr>
+      <th>Data</th>
+      <th>ID PIX</th>
+      <th>Status</th>
+    </tr>
+    ${linhas || '<tr><td colspan="3" class="vazio">Nenhum pagamento registrado</td></tr>'}
+  </table>
+</div>
+</body>
+</html>
+  `);
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
