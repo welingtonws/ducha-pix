@@ -4,8 +4,8 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ extended: true, limit: "5mb" }));
 
 const PORT = process.env.PORT || 3000;
 const ACCESS_TOKEN = process.env.MERCADO_PAGO_ACCESS_TOKEN;
@@ -209,6 +209,14 @@ function painelAutorizado(req) {
   return cookie.includes(`painel_token=${TOKEN_PAINEL}`);
 }
 
+function exigirPainel(req, res) {
+  if (!painelAutorizado(req)) {
+    res.status(403).send("Acesso negado");
+    return false;
+  }
+  return true;
+}
+
 function telaLogin(erro = false) {
   return `
 <!DOCTYPE html>
@@ -242,7 +250,7 @@ button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;backgro
 }
 
 app.get("/", (req, res) => {
-  res.send("Servidor PIX da Ducha Online - V5.34");
+  res.send("Servidor PIX da Ducha Online - V5.35");
 });
 
 app.get("/status", (req, res) => {
@@ -251,7 +259,7 @@ app.get("/status", (req, res) => {
 
   res.json({
     sistema: "DUCHA PIX",
-    versao: "5.34",
+    versao: "5.35",
     online: true,
     ultimoPagamentoId,
     pendentes: pagamentosPendentes.length,
@@ -482,6 +490,74 @@ app.get("/historico", (req, res) => {
   });
 });
 
+app.get("/exportar-historico", (req, res) => {
+  if (!exigirPainel(req, res)) return;
+
+  const dados = {
+    exportadoEm: new Date().toLocaleString("pt-BR"),
+    total: historicoPagamentos.length,
+    totalFaturado: totalFaturado(),
+    pagamentos: historicoPagamentos
+  };
+
+  res.setHeader("Content-Disposition", "attachment; filename=historico_ducha.json");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.send(JSON.stringify(dados, null, 2));
+});
+
+app.get("/backup-dados", (req, res) => {
+  if (!exigirPainel(req, res)) return;
+
+  const dados = {
+    ultimoPagamentoId,
+    pagamentosPendentes,
+    pagamentosEntregues,
+    historicoPagamentos
+  };
+
+  res.setHeader("Content-Disposition", "attachment; filename=dados_ducha_backup.json");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.send(JSON.stringify(dados, null, 2));
+});
+
+app.post("/limpar-historico", (req, res) => {
+  if (!exigirPainel(req, res)) return;
+
+  historicoPagamentos = [];
+  pagamentosEntregues = [];
+  salvarDados();
+
+  res.redirect("/painel");
+});
+
+app.post("/restaurar-backup", (req, res) => {
+  if (!exigirPainel(req, res)) return;
+
+  try {
+    const texto = String(req.body.backup || "");
+    const dados = JSON.parse(texto);
+
+    if (!Array.isArray(dados.pagamentosPendentes)) dados.pagamentosPendentes = [];
+    if (!Array.isArray(dados.pagamentosEntregues)) dados.pagamentosEntregues = [];
+    if (!Array.isArray(dados.historicoPagamentos)) dados.historicoPagamentos = [];
+
+    ultimoPagamentoId = dados.ultimoPagamentoId || null;
+    pagamentosPendentes = dados.pagamentosPendentes;
+    pagamentosEntregues = dados.pagamentosEntregues;
+    historicoPagamentos = dados.historicoPagamentos;
+
+    salvarDados();
+
+    res.redirect("/painel");
+  } catch (erro) {
+    res.send(`
+      <h2>Erro ao restaurar backup</h2>
+      <p>${erro.message}</p>
+      <a href="/painel">Voltar</a>
+    `);
+  }
+});
+
 app.post("/login-painel", (req, res) => {
   const senha = String(req.body.senha || "");
 
@@ -531,13 +607,19 @@ h1{text-align:center;color:#00e5ff}
 .box2{background:#092f2f;padding:12px 18px;border-radius:10px;font-size:18px;color:#00ffbf}
 .box3{background:#27184a;padding:12px 18px;border-radius:10px;font-size:18px;color:#ffccff}
 .box4{background:#2e2608;padding:12px 18px;border-radius:10px;font-size:18px;color:#ffe066}
-button,.btn{display:inline-block;margin:8px;padding:12px 25px;border:0;border-radius:8px;background:#00aaff;color:white;font-weight:bold;font-size:17px;text-decoration:none}
+button,.btn{display:inline-block;margin:8px;padding:12px 25px;border:0;border-radius:8px;background:#00aaff;color:white;font-weight:bold;font-size:17px;text-decoration:none;cursor:pointer}
+.btn-red{background:#d32f2f}
+.btn-green{background:#00a651}
+.btn-purple{background:#7b1fa2}
 .acoes{text-align:center}
+textarea{width:95%;max-width:950px;height:120px;border-radius:10px;padding:10px;margin-top:10px}
 table{width:100%;border-collapse:collapse;margin-top:20px}
 th{background:#00aaff;color:white;padding:12px}
 td{padding:12px;border-bottom:1px solid #244;text-align:center}
 .ok{color:#00ff7f;font-weight:bold}
 .vazio{text-align:center;color:#ffcc00;padding:25px}
+.operacional{margin-top:20px;padding:15px;border:1px solid #244;border-radius:12px;background:#06152b;text-align:center}
+.operacional h2{color:#00e5ff;margin-top:0}
 @media(max-width:600px){
   body{padding:8px}
   .card{padding:12px}
@@ -550,7 +632,7 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
 </head>
 <body>
 <div class="card">
-  <h1>Painel Administrativo - Ducha PIX V5.34</h1>
+  <h1>Painel Administrativo - Ducha PIX V5.35</h1>
 
   <div class="info">
     <div class="box">Pendentes: ${pagamentosPendentes.length}</div>
@@ -588,6 +670,23 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
   <div class="acoes">
     <button onclick="location.reload()">ATUALIZAR</button>
     <a class="btn" href="/sair-painel">SAIR</a>
+  </div>
+
+  <div class="operacional">
+    <h2>Operacional</h2>
+
+    <a class="btn btn-green" href="/exportar-historico">EXPORTAR HISTÓRICO JSON</a>
+    <a class="btn btn-purple" href="/backup-dados">BACKUP DADOS.JSON</a>
+
+    <form method="POST" action="/limpar-historico" style="display:inline" onsubmit="return confirm('Tem certeza que deseja limpar todo o histórico? Faça backup antes.')">
+      <button class="btn-red" type="submit">LIMPAR HISTÓRICO</button>
+    </form>
+
+    <form method="POST" action="/restaurar-backup" onsubmit="return confirm('Tem certeza que deseja restaurar este backup? Os dados atuais serão substituídos.')">
+      <p>Cole aqui o conteúdo do arquivo backup dados.json:</p>
+      <textarea name="backup" placeholder="Cole o JSON do backup aqui"></textarea><br>
+      <button class="btn-purple" type="submit">RESTAURAR BACKUP</button>
+    </form>
   </div>
 
   <table>
