@@ -147,6 +147,28 @@ function resumoFinanceiro() {
   };
 }
 
+function resumoAvancado() {
+  const valores = historicoPagamentos
+    .map(p => Number(p.valor || 0))
+    .filter(v => v > 0);
+
+  const totalBanhos = historicoPagamentos.length;
+  const maiorVenda = valores.length > 0 ? Math.max(...valores) : 0;
+  const menorVenda = valores.length > 0 ? Math.min(...valores) : 0;
+  const ticketMedio = totalBanhos > 0 ? totalFaturado() / totalBanhos : 0;
+
+  const ultimo = historicoPagamentos.length > 0 ? historicoPagamentos[0] : null;
+
+  return {
+    totalBanhos,
+    maiorVenda,
+    menorVenda,
+    ticketMedio,
+    ultimoPix: ultimo ? ultimo.pagamentoId : "-",
+    ultimaData: ultimo ? ultimo.data : "-"
+  };
+}
+
 function painelAutorizado(req) {
   const cookie = req.headers.cookie || "";
   return cookie.includes(`painel_token=${TOKEN_PAINEL}`);
@@ -185,15 +207,16 @@ button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;backgro
 }
 
 app.get("/", (req, res) => {
-  res.send("Servidor PIX da Ducha Online - V5.32");
+  res.send("Servidor PIX da Ducha Online - V5.33");
 });
 
 app.get("/status", (req, res) => {
   const resumo = resumoFinanceiro();
+  const avancado = resumoAvancado();
 
   res.json({
     sistema: "DUCHA PIX",
-    versao: "5.32",
+    versao: "5.33",
     online: true,
     ultimoPagamentoId,
     pendentes: pagamentosPendentes.length,
@@ -203,7 +226,13 @@ app.get("/status", (req, res) => {
     totalHoje: resumo.totalHoje,
     totalOntem: resumo.totalOntem,
     totalMes: resumo.totalMes,
-    banhosHoje: resumo.banhosHoje
+    banhosHoje: resumo.banhosHoje,
+    maiorVenda: avancado.maiorVenda,
+    menorVenda: avancado.menorVenda,
+    ticketMedio: avancado.ticketMedio,
+    totalBanhos: avancado.totalBanhos,
+    ultimoPix: avancado.ultimoPix,
+    ultimaData: avancado.ultimaData
   });
 });
 
@@ -391,6 +420,7 @@ app.get("/confirmar-liberacao", (req, res) => {
 
 app.get("/historico", (req, res) => {
   const resumo = resumoFinanceiro();
+  const avancado = resumoAvancado();
 
   res.json({
     total: historicoPagamentos.length,
@@ -399,6 +429,12 @@ app.get("/historico", (req, res) => {
     totalOntem: resumo.totalOntem,
     totalMes: resumo.totalMes,
     banhosHoje: resumo.banhosHoje,
+    maiorVenda: avancado.maiorVenda,
+    menorVenda: avancado.menorVenda,
+    ticketMedio: avancado.ticketMedio,
+    totalBanhos: avancado.totalBanhos,
+    ultimoPix: avancado.ultimoPix,
+    ultimaData: avancado.ultimaData,
     pagamentos: historicoPagamentos
   });
 });
@@ -425,6 +461,7 @@ app.get("/painel", (req, res) => {
   }
 
   const resumo = resumoFinanceiro();
+  const avancado = resumoAvancado();
 
   const linhas = historicoPagamentos.map(p => `
     <tr>
@@ -444,11 +481,12 @@ app.get("/painel", (req, res) => {
 <title>Painel Administrativo</title>
 <style>
 body{font-family:Arial;background:#06152b;color:white;margin:0;padding:15px}
-.card{max-width:1150px;margin:auto;background:#0b2447;padding:20px;border-radius:15px;box-shadow:0 0 20px #00d9ff55}
+.card{max-width:1200px;margin:auto;background:#0b2447;padding:20px;border-radius:15px;box-shadow:0 0 20px #00d9ff55}
 h1{text-align:center;color:#00e5ff}
 .info{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:15px 0}
 .box{background:#06152b;padding:12px 18px;border-radius:10px;font-size:18px;color:#ffd600}
 .box2{background:#092f2f;padding:12px 18px;border-radius:10px;font-size:18px;color:#00ffbf}
+.box3{background:#27184a;padding:12px 18px;border-radius:10px;font-size:18px;color:#ffccff}
 button,.btn{display:inline-block;margin:8px;padding:12px 25px;border:0;border-radius:8px;background:#00aaff;color:white;font-weight:bold;font-size:17px;text-decoration:none}
 .acoes{text-align:center}
 table{width:100%;border-collapse:collapse;margin-top:20px}
@@ -462,13 +500,13 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
   h1{font-size:22px}
   table{font-size:12px}
   th,td{padding:7px}
-  .box,.box2{font-size:15px}
+  .box,.box2,.box3{font-size:15px}
 }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>Painel Administrativo - Ducha PIX V5.32</h1>
+  <h1>Painel Administrativo - Ducha PIX V5.33</h1>
 
   <div class="info">
     <div class="box">Pendentes: ${pagamentosPendentes.length}</div>
@@ -482,6 +520,18 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
     <div class="box2">Ontem: ${formatarMoeda(resumo.totalOntem)}</div>
     <div class="box2">Mês: ${formatarMoeda(resumo.totalMes)}</div>
     <div class="box2">Banhos Hoje: ${resumo.banhosHoje}</div>
+  </div>
+
+  <div class="info">
+    <div class="box3">Maior Venda: ${formatarMoeda(avancado.maiorVenda)}</div>
+    <div class="box3">Menor Venda: ${formatarMoeda(avancado.menorVenda)}</div>
+    <div class="box3">Ticket Médio: ${formatarMoeda(avancado.ticketMedio)}</div>
+    <div class="box3">Total Banhos: ${avancado.totalBanhos}</div>
+  </div>
+
+  <div class="info">
+    <div class="box3">Último PIX: ${avancado.ultimoPix}</div>
+    <div class="box3">Última Venda: ${avancado.ultimaData}</div>
   </div>
 
   <div class="acoes">
