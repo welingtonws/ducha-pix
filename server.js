@@ -9,6 +9,7 @@ const ACCESS_TOKEN = process.env.MERCADO_PAGO_ACCESS_TOKEN;
 
 let ultimoPagamentoId = null;
 let pagamentosPendentes = [];
+let pagamentosEntregues = [];
 
 function valorPixSeguro(req) {
   let valor = parseFloat(req.query.valor);
@@ -27,7 +28,8 @@ app.get("/status", (req, res) => {
     sistema: "DUCHA PIX",
     online: true,
     ultimoPagamentoId,
-    pendentes: pagamentosPendentes.length
+    pendentes: pagamentosPendentes.length,
+    entregues: pagamentosEntregues.length
   });
 });
 
@@ -54,8 +56,12 @@ async function criarPix(valorPix) {
 }
 
 function adicionarPendente(pagamentoId) {
-  if (!pagamentosPendentes.includes(String(pagamentoId))) {
-    pagamentosPendentes.push(String(pagamentoId));
+  pagamentoId = String(pagamentoId);
+
+  if (pagamentosEntregues.includes(pagamentoId)) return;
+
+  if (!pagamentosPendentes.includes(pagamentoId)) {
+    pagamentosPendentes.push(pagamentoId);
     console.log("PIX aprovado pendente:", pagamentoId);
   }
 }
@@ -90,7 +96,7 @@ app.post("/webhook", async (req, res) => {
       );
 
       if (consulta.data.status === "approved") {
-        ultimoPagamentoId = pagamentoId;
+        ultimoPagamentoId = String(pagamentoId);
         adicionarPendente(pagamentoId);
       }
     }
@@ -105,7 +111,7 @@ app.post("/webhook", async (req, res) => {
 app.get("/liberar", async (req, res) => {
   try {
     if (pagamentosPendentes.length > 0) {
-      const pagamentoId = pagamentosPendentes.shift();
+      const pagamentoId = pagamentosPendentes[0];
 
       return res.json({
         liberar: true,
@@ -114,7 +120,7 @@ app.get("/liberar", async (req, res) => {
       });
     }
 
-    if (ultimoPagamentoId) {
+    if (ultimoPagamentoId && !pagamentosEntregues.includes(String(ultimoPagamentoId))) {
       const consulta = await axios.get(
         `https://api.mercadopago.com/v1/payments/${ultimoPagamentoId}`,
         { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
@@ -123,7 +129,7 @@ app.get("/liberar", async (req, res) => {
       if (consulta.data.status === "approved") {
         adicionarPendente(ultimoPagamentoId);
 
-        const pagamentoId = pagamentosPendentes.shift();
+        const pagamentoId = pagamentosPendentes[0];
 
         return res.json({
           liberar: true,
@@ -146,6 +152,32 @@ app.get("/liberar", async (req, res) => {
       mensagem: "ERRO CONSULTA PAGAMENTO"
     });
   }
+});
+
+app.get("/confirmar-liberacao", (req, res) => {
+  const pagamentoId = String(req.query.id || "");
+
+  if (!pagamentoId) {
+    return res.json({
+      ok: false,
+      mensagem: "ID NAO INFORMADO"
+    });
+  }
+
+  pagamentosPendentes = pagamentosPendentes.filter(id => String(id) !== pagamentoId);
+
+  if (!pagamentosEntregues.includes(pagamentoId)) {
+    pagamentosEntregues.push(pagamentoId);
+  }
+
+  console.log("Ducha liberada confirmada:", pagamentoId);
+
+  res.json({
+    ok: true,
+    pagamentoId,
+    pendentes: pagamentosPendentes.length,
+    entregues: pagamentosEntregues.length
+  });
 });
 
 app.listen(PORT, () => {
