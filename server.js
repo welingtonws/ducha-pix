@@ -14,6 +14,7 @@ const TOKEN_PAINEL = process.env.TOKEN_PAINEL || "ducha_pix_logado";
 
 const ARQUIVO_DADOS = path.join(__dirname, "dados.json");
 const TIMEZONE_BRASIL = "America/Sao_Paulo";
+const DIAS_HISTORICO = 30;
 
 let ultimoPagamentoId = null;
 let pagamentosPendentes = [];
@@ -22,12 +23,15 @@ let historicoPagamentos = [];
 
 function salvarDados() {
   try {
+    limparHistoricoAntigo();
+
     const dados = {
       ultimoPagamentoId,
       pagamentosPendentes,
       pagamentosEntregues,
       historicoPagamentos
     };
+
     fs.writeFileSync(ARQUIVO_DADOS, JSON.stringify(dados, null, 2));
     console.log("Dados salvos em dados.json");
   } catch (erro) {
@@ -45,6 +49,8 @@ function carregarDados() {
       pagamentosPendentes = dados.pagamentosPendentes || [];
       pagamentosEntregues = dados.pagamentosEntregues || [];
       historicoPagamentos = dados.historicoPagamentos || [];
+
+      limparHistoricoAntigo();
 
       console.log("Dados carregados de dados.json");
     } else {
@@ -155,6 +161,18 @@ function diferencaDias(dataAntiga, dataAtual) {
   return Math.floor((b - a) / (1000 * 60 * 60 * 24));
 }
 
+function limparHistoricoAntigo() {
+  const hoje = hojeBrasilData();
+
+  historicoPagamentos = historicoPagamentos.filter(p => {
+    const dataRegistro = extrairDataBR(p.data);
+    if (!dataRegistro) return true;
+
+    const dias = diferencaDias(dataRegistro, hoje);
+    return dias <= DIAS_HISTORICO;
+  });
+}
+
 function mesmoDia(dataA, dataB) {
   return (
     dataA &&
@@ -175,6 +193,8 @@ function mesmoMes(dataA, dataB) {
 }
 
 function resumoFinanceiro() {
+  limparHistoricoAntigo();
+
   const hoje = hojeBrasilData();
   const ontem = new Date(hoje);
   ontem.setDate(hoje.getDate() - 1);
@@ -252,6 +272,8 @@ function resumoFinanceiro() {
 }
 
 function resumoAvancado() {
+  limparHistoricoAntigo();
+
   const valores = historicoPagamentos
     .filter(p => tipoRegistro(p) === "PIX")
     .map(p => Number(p.valor || 0))
@@ -325,7 +347,7 @@ button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;backgro
 }
 
 app.get("/", (req, res) => {
-  res.send("Servidor PIX da Ducha Online - V5.37");
+  res.send("Servidor PIX da Ducha Online - V5.38");
 });
 
 app.get("/status", (req, res) => {
@@ -334,8 +356,9 @@ app.get("/status", (req, res) => {
 
   res.json({
     sistema: "DUCHA PIX",
-    versao: "5.37",
+    versao: "5.38",
     online: true,
+    limpezaAutomaticaDias: DIAS_HISTORICO,
     ultimoPagamentoId,
     pendentes: pagamentosPendentes.length,
     entregues: pagamentosEntregues.length,
@@ -525,10 +548,6 @@ app.get("/confirmar-liberacao", (req, res) => {
       data: agoraBrasilTexto(),
       status: "ENTREGUE"
     });
-
-    if (historicoPagamentos.length > 100) {
-      historicoPagamentos.pop();
-    }
   }
 
   salvarDados();
@@ -547,7 +566,7 @@ app.get("/confirmar-liberacao", (req, res) => {
   });
 });
 
-app.get("/confirmar-senha", (req, res) => {
+function registrarSenha(req, res) {
   const senha = String(req.query.senha || req.query.codigo || "").trim();
   const ducha = String(req.query.ducha || "").trim();
 
@@ -563,10 +582,6 @@ app.get("/confirmar-senha", (req, res) => {
     status: "ENTREGUE"
   });
 
-  if (historicoPagamentos.length > 100) {
-    historicoPagamentos.pop();
-  }
-
   salvarDados();
 
   console.log("Ducha liberada confirmada por SENHA:", idSenha, "senha:", senha || "-", "ducha:", ducha || "-");
@@ -581,12 +596,10 @@ app.get("/confirmar-senha", (req, res) => {
     historico: historicoPagamentos.length,
     totalFaturado: totalFaturado()
   });
-});
+}
 
-app.get("/registrar-senha", (req, res) => {
-  req.url = "/confirmar-senha";
-  app._router.handle(req, res);
-});
+app.get("/confirmar-senha", registrarSenha);
+app.get("/registrar-senha", registrarSenha);
 
 app.get("/historico", (req, res) => {
   const resumo = resumoFinanceiro();
@@ -595,6 +608,7 @@ app.get("/historico", (req, res) => {
   res.json({
     total: historicoPagamentos.length,
     totalFaturado: totalFaturado(),
+    limpezaAutomaticaDias: DIAS_HISTORICO,
     totalHoje: resumo.totalHoje,
     totalOntem: resumo.totalOntem,
     totalMes: resumo.totalMes,
@@ -621,8 +635,11 @@ app.get("/historico", (req, res) => {
 app.get("/exportar-historico", (req, res) => {
   if (!exigirPainel(req, res)) return;
 
+  limparHistoricoAntigo();
+
   const dados = {
     exportadoEm: agoraBrasilTexto(),
+    limpezaAutomaticaDias: DIAS_HISTORICO,
     total: historicoPagamentos.length,
     totalFaturado: totalFaturado(),
     pagamentos: historicoPagamentos
@@ -635,6 +652,8 @@ app.get("/exportar-historico", (req, res) => {
 
 app.get("/backup-dados", (req, res) => {
   if (!exigirPainel(req, res)) return;
+
+  limparHistoricoAntigo();
 
   const dados = {
     ultimoPagamentoId,
@@ -707,6 +726,8 @@ app.get("/painel", (req, res) => {
     return res.send(telaLogin(false));
   }
 
+  limparHistoricoAntigo();
+
   const resumo = resumoFinanceiro();
   const avancado = resumoAvancado();
 
@@ -758,6 +779,7 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
 .vazio{text-align:center;color:#ffcc00;padding:25px}
 .operacional{margin-top:20px;padding:15px;border:1px solid #244;border-radius:12px;background:#06152b;text-align:center}
 .operacional h2{color:#00e5ff;margin-top:0}
+.aviso{color:#7dd3ff;text-align:center;margin-top:8px;font-size:15px}
 @media(max-width:600px){
   body{padding:8px}
   .card{padding:12px}
@@ -770,7 +792,8 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
 </head>
 <body>
 <div class="card">
-  <h1>Painel Administrativo - Ducha PIX V5.37</h1>
+  <h1>Painel Administrativo - Ducha PIX V5.38</h1>
+  <div class="aviso">Limpeza automática: histórico dos últimos ${DIAS_HISTORICO} dias</div>
 
   <div class="info">
     <div class="box">Pendentes: ${pagamentosPendentes.length}</div>
