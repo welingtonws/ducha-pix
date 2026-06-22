@@ -66,8 +66,8 @@ carregarDados();
 function valorPixSeguro(req) {
   let valor = parseFloat(req.query.valor);
   if (isNaN(valor)) valor = 8;
-  if (valor < 5) valor = 5;
-  if (valor > 50) valor = 50;
+  if (valor < 1) valor = 1;
+  if (valor > 200) valor = 200;
   return Number(valor.toFixed(2));
 }
 
