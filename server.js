@@ -103,8 +103,29 @@ function formatarMoeda(valor) {
   });
 }
 
+function tipoRegistro(p) {
+  if (p.tipo) return String(p.tipo).toUpperCase();
+
+  if (String(p.pagamentoId || "").startsWith("SENHA-")) {
+    return "SENHA";
+  }
+
+  return "PIX";
+}
+
 function totalFaturado() {
-  return historicoPagamentos.reduce((total, p) => total + Number(p.valor || 0), 0);
+  return historicoPagamentos.reduce((total, p) => {
+    if (tipoRegistro(p) !== "PIX") return total;
+    return total + Number(p.valor || 0);
+  }, 0);
+}
+
+function totalSenhasUsadas() {
+  return historicoPagamentos.filter(p => tipoRegistro(p) === "SENHA").length;
+}
+
+function totalPixEntreguesHistorico() {
+  return historicoPagamentos.filter(p => tipoRegistro(p) === "PIX").length;
 }
 
 function extrairDataBR(dataTexto) {
@@ -168,38 +189,51 @@ function resumoFinanceiro() {
   let total7Dias = 0;
   let total30Dias = 0;
   let banhosHoje = 0;
+  let senhasHoje = 0;
+  let pixHoje = 0;
 
   historicoPagamentos.forEach(p => {
     const dataPagamento = extrairDataBR(p.data);
     const valor = Number(p.valor || 0);
+    const tipo = tipoRegistro(p);
 
     if (!dataPagamento) return;
 
     const dias = diferencaDias(dataPagamento, hoje);
 
     if (mesmoDia(dataPagamento, hoje)) {
-      totalHoje += valor;
       banhosHoje++;
+
+      if (tipo === "SENHA") {
+        senhasHoje++;
+      }
+
+      if (tipo === "PIX") {
+        pixHoje++;
+        totalHoje += valor;
+      }
     }
 
-    if (mesmoDia(dataPagamento, ontem)) {
-      totalOntem += valor;
-    }
+    if (tipo === "PIX") {
+      if (mesmoDia(dataPagamento, ontem)) {
+        totalOntem += valor;
+      }
 
-    if (mesmoMes(dataPagamento, hoje)) {
-      totalMes += valor;
-    }
+      if (mesmoMes(dataPagamento, hoje)) {
+        totalMes += valor;
+      }
 
-    if (mesmoMes(dataPagamento, mesAnterior)) {
-      totalMesAnterior += valor;
-    }
+      if (mesmoMes(dataPagamento, mesAnterior)) {
+        totalMesAnterior += valor;
+      }
 
-    if (dias >= 0 && dias <= 6) {
-      total7Dias += valor;
-    }
+      if (dias >= 0 && dias <= 6) {
+        total7Dias += valor;
+      }
 
-    if (dias >= 0 && dias <= 29) {
-      total30Dias += valor;
+      if (dias >= 0 && dias <= 29) {
+        total30Dias += valor;
+      }
     }
   });
 
@@ -211,28 +245,37 @@ function resumoFinanceiro() {
     total7Dias,
     total30Dias,
     mediaDiaria30: total30Dias / 30,
-    banhosHoje
+    banhosHoje,
+    senhasHoje,
+    pixHoje
   };
 }
 
 function resumoAvancado() {
   const valores = historicoPagamentos
+    .filter(p => tipoRegistro(p) === "PIX")
     .map(p => Number(p.valor || 0))
     .filter(v => v > 0);
 
   const totalBanhos = historicoPagamentos.length;
+  const totalPix = totalPixEntreguesHistorico();
+  const totalSenhas = totalSenhasUsadas();
+
   const maiorVenda = valores.length > 0 ? Math.max(...valores) : 0;
   const menorVenda = valores.length > 0 ? Math.min(...valores) : 0;
-  const ticketMedio = totalBanhos > 0 ? totalFaturado() / totalBanhos : 0;
+  const ticketMedio = totalPix > 0 ? totalFaturado() / totalPix : 0;
   const ultimo = historicoPagamentos.length > 0 ? historicoPagamentos[0] : null;
 
   return {
     totalBanhos,
+    totalPix,
+    totalSenhas,
     maiorVenda,
     menorVenda,
     ticketMedio,
     ultimoPix: ultimo ? ultimo.pagamentoId : "-",
-    ultimaData: ultimo ? ultimo.data : "-"
+    ultimaData: ultimo ? ultimo.data : "-",
+    ultimoTipo: ultimo ? tipoRegistro(ultimo) : "-"
   };
 }
 
@@ -282,7 +325,7 @@ button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;backgro
 }
 
 app.get("/", (req, res) => {
-  res.send("Servidor PIX da Ducha Online - V5.36");
+  res.send("Servidor PIX da Ducha Online - V5.37");
 });
 
 app.get("/status", (req, res) => {
@@ -291,7 +334,7 @@ app.get("/status", (req, res) => {
 
   res.json({
     sistema: "DUCHA PIX",
-    versao: "5.36",
+    versao: "5.37",
     online: true,
     ultimoPagamentoId,
     pendentes: pagamentosPendentes.length,
@@ -306,12 +349,17 @@ app.get("/status", (req, res) => {
     total30Dias: resumo.total30Dias,
     mediaDiaria30: resumo.mediaDiaria30,
     banhosHoje: resumo.banhosHoje,
+    senhasHoje: resumo.senhasHoje,
+    pixHoje: resumo.pixHoje,
     maiorVenda: avancado.maiorVenda,
     menorVenda: avancado.menorVenda,
     ticketMedio: avancado.ticketMedio,
     totalBanhos: avancado.totalBanhos,
+    totalPix: avancado.totalPix,
+    totalSenhas: avancado.totalSenhas,
     ultimoPix: avancado.ultimoPix,
-    ultimaData: avancado.ultimaData
+    ultimaData: avancado.ultimaData,
+    ultimoTipo: avancado.ultimoTipo
   });
 });
 
@@ -473,6 +521,7 @@ app.get("/confirmar-liberacao", (req, res) => {
     historicoPagamentos.unshift({
       pagamentoId,
       valor,
+      tipo: "PIX",
       data: agoraBrasilTexto(),
       status: "ENTREGUE"
     });
@@ -484,10 +533,11 @@ app.get("/confirmar-liberacao", (req, res) => {
 
   salvarDados();
 
-  console.log("Ducha liberada confirmada:", pagamentoId);
+  console.log("Ducha liberada confirmada por PIX:", pagamentoId);
 
   res.json({
     ok: true,
+    tipo: "PIX",
     pagamentoId,
     valor,
     pendentes: pagamentosPendentes.length,
@@ -495,6 +545,47 @@ app.get("/confirmar-liberacao", (req, res) => {
     historico: historicoPagamentos.length,
     totalFaturado: totalFaturado()
   });
+});
+
+app.get("/confirmar-senha", (req, res) => {
+  const senha = String(req.query.senha || req.query.codigo || "").trim();
+  const ducha = String(req.query.ducha || "").trim();
+
+  const idSenha = `SENHA-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+  historicoPagamentos.unshift({
+    pagamentoId: idSenha,
+    valor: 0,
+    tipo: "SENHA",
+    senha: senha || "-",
+    ducha: ducha || "-",
+    data: agoraBrasilTexto(),
+    status: "ENTREGUE"
+  });
+
+  if (historicoPagamentos.length > 100) {
+    historicoPagamentos.pop();
+  }
+
+  salvarDados();
+
+  console.log("Ducha liberada confirmada por SENHA:", idSenha, "senha:", senha || "-", "ducha:", ducha || "-");
+
+  res.json({
+    ok: true,
+    tipo: "SENHA",
+    pagamentoId: idSenha,
+    senha: senha || "-",
+    ducha: ducha || "-",
+    valor: 0,
+    historico: historicoPagamentos.length,
+    totalFaturado: totalFaturado()
+  });
+});
+
+app.get("/registrar-senha", (req, res) => {
+  req.url = "/confirmar-senha";
+  app._router.handle(req, res);
 });
 
 app.get("/historico", (req, res) => {
@@ -512,12 +603,17 @@ app.get("/historico", (req, res) => {
     total30Dias: resumo.total30Dias,
     mediaDiaria30: resumo.mediaDiaria30,
     banhosHoje: resumo.banhosHoje,
+    senhasHoje: resumo.senhasHoje,
+    pixHoje: resumo.pixHoje,
     maiorVenda: avancado.maiorVenda,
     menorVenda: avancado.menorVenda,
     ticketMedio: avancado.ticketMedio,
     totalBanhos: avancado.totalBanhos,
+    totalPix: avancado.totalPix,
+    totalSenhas: avancado.totalSenhas,
     ultimoPix: avancado.ultimoPix,
     ultimaData: avancado.ultimaData,
+    ultimoTipo: avancado.ultimoTipo,
     pagamentos: historicoPagamentos
   });
 });
@@ -614,14 +710,21 @@ app.get("/painel", (req, res) => {
   const resumo = resumoFinanceiro();
   const avancado = resumoAvancado();
 
-  const linhas = historicoPagamentos.map(p => `
+  const linhas = historicoPagamentos.map(p => {
+    const tipo = tipoRegistro(p);
+    const classeTipo = tipo === "SENHA" ? "senha" : "pix";
+    const valorTexto = tipo === "SENHA" ? "-" : formatarMoeda(p.valor);
+
+    return `
     <tr>
       <td>${p.data}</td>
-      <td>${p.pagamentoId}</td>
-      <td>${formatarMoeda(p.valor)}</td>
+      <td>${tipo === "SENHA" ? (p.senha || p.pagamentoId) : p.pagamentoId}</td>
+      <td class="${classeTipo}">${tipo}</td>
+      <td>${valorTexto}</td>
       <td class="ok">${p.status}</td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 
   res.send(`
 <!DOCTYPE html>
@@ -639,6 +742,7 @@ h1{text-align:center;color:#00e5ff}
 .box2{background:#092f2f;padding:12px 18px;border-radius:10px;font-size:18px;color:#00ffbf}
 .box3{background:#27184a;padding:12px 18px;border-radius:10px;font-size:18px;color:#ffccff}
 .box4{background:#2e2608;padding:12px 18px;border-radius:10px;font-size:18px;color:#ffe066}
+.box5{background:#14335c;padding:12px 18px;border-radius:10px;font-size:18px;color:#7dd3ff}
 button,.btn{display:inline-block;margin:8px;padding:12px 25px;border:0;border-radius:8px;background:#00aaff;color:white;font-weight:bold;font-size:17px;text-decoration:none;cursor:pointer}
 .btn-red{background:#d32f2f}
 .btn-green{background:#00a651}
@@ -649,6 +753,8 @@ table{width:100%;border-collapse:collapse;margin-top:20px}
 th{background:#00aaff;color:white;padding:12px}
 td{padding:12px;border-bottom:1px solid #244;text-align:center}
 .ok{color:#00ff7f;font-weight:bold}
+.pix{color:#00e5ff;font-weight:bold}
+.senha{color:#ffcc00;font-weight:bold}
 .vazio{text-align:center;color:#ffcc00;padding:25px}
 .operacional{margin-top:20px;padding:15px;border:1px solid #244;border-radius:12px;background:#06152b;text-align:center}
 .operacional h2{color:#00e5ff;margin-top:0}
@@ -658,19 +764,26 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
   h1{font-size:22px}
   table{font-size:12px}
   th,td{padding:7px}
-  .box,.box2,.box3,.box4{font-size:15px}
+  .box,.box2,.box3,.box4,.box5{font-size:15px}
 }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>Painel Administrativo - Ducha PIX V5.36</h1>
+  <h1>Painel Administrativo - Ducha PIX V5.37</h1>
 
   <div class="info">
     <div class="box">Pendentes: ${pagamentosPendentes.length}</div>
-    <div class="box">Entregues: ${pagamentosEntregues.length}</div>
+    <div class="box">Entregues PIX: ${pagamentosEntregues.length}</div>
     <div class="box">Histórico: ${historicoPagamentos.length}</div>
     <div class="box">Total Geral: ${formatarMoeda(totalFaturado())}</div>
+  </div>
+
+  <div class="info">
+    <div class="box5">PIX Hoje: ${resumo.pixHoje}</div>
+    <div class="box5">Senhas Hoje: ${resumo.senhasHoje}</div>
+    <div class="box5">Senhas Usadas: ${avancado.totalSenhas}</div>
+    <div class="box5">Total Banhos: ${avancado.totalBanhos}</div>
   </div>
 
   <div class="info">
@@ -683,8 +796,8 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
   <div class="info">
     <div class="box3">Maior Venda: ${formatarMoeda(avancado.maiorVenda)}</div>
     <div class="box3">Menor Venda: ${formatarMoeda(avancado.menorVenda)}</div>
-    <div class="box3">Ticket Médio: ${formatarMoeda(avancado.ticketMedio)}</div>
-    <div class="box3">Total Banhos: ${avancado.totalBanhos}</div>
+    <div class="box3">Ticket Médio PIX: ${formatarMoeda(avancado.ticketMedio)}</div>
+    <div class="box3">Total PIX: ${avancado.totalPix}</div>
   </div>
 
   <div class="info">
@@ -695,7 +808,8 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
   </div>
 
   <div class="info">
-    <div class="box3">Último PIX: ${avancado.ultimoPix}</div>
+    <div class="box3">Último Registro: ${avancado.ultimoPix}</div>
+    <div class="box3">Tipo: ${avancado.ultimoTipo}</div>
     <div class="box3">Última Venda: ${avancado.ultimaData}</div>
   </div>
 
@@ -724,11 +838,12 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
   <table>
     <tr>
       <th>Data</th>
-      <th>ID PIX</th>
+      <th>ID / Senha</th>
+      <th>Tipo</th>
       <th>Valor</th>
       <th>Status</th>
     </tr>
-    ${linhas || '<tr><td colspan="4" class="vazio">Nenhum pagamento registrado</td></tr>'}
+    ${linhas || '<tr><td colspan="5" class="vazio">Nenhum pagamento registrado</td></tr>'}
   </table>
 </div>
 </body>
