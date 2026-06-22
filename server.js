@@ -102,6 +102,53 @@ function hojeBrasilData() {
   );
 }
 
+
+function timestampAgora() {
+  return Date.now();
+}
+
+function extrairTimestampRegistro(p) {
+  if (!p) return null;
+
+  const ts = Number(p.timestamp || 0);
+  if (ts > 0 && Number.isFinite(ts)) {
+    return ts;
+  }
+
+  const texto = String(p.data || "").trim();
+
+  // Aceita formatos como:
+  // 22/06/2026, 18:50:48
+  // 22/06/2026 18:50:48
+  // 22/06/2026, 18:50
+  const m = texto.match(/(\d{2})\/(\d{2})\/(\d{4})(?:,?\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/);
+
+  if (!m) return null;
+
+  const dia = Number(m[1]);
+  const mes = Number(m[2]) - 1;
+  const ano = Number(m[3]);
+  const hora = Number(m[4] || 12);
+  const minuto = Number(m[5] || 0);
+  const segundo = Number(m[6] || 0);
+
+  const d = new Date(ano, mes, dia, hora, minuto, segundo);
+
+  if (isNaN(d.getTime())) return null;
+
+  return d.getTime();
+}
+
+function garantirTimestampHistorico() {
+  historicoPagamentos = historicoPagamentos.map(p => {
+    if (!p.timestamp) {
+      const ts = extrairTimestampRegistro(p);
+      if (ts) p.timestamp = ts;
+    }
+    return p;
+  });
+}
+
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
     style: "currency",
@@ -136,16 +183,24 @@ function totalPixEntreguesHistorico() {
 
 function extrairDataBR(dataTexto) {
   try {
-    const apenasData = String(dataTexto || "").split(",")[0].trim();
-    const partes = apenasData.split("/");
+    const texto = String(dataTexto || "").trim();
 
-    if (partes.length !== 3) return null;
+    // Aceita a data em qualquer parte do texto:
+    // 22/06/2026, 18:50:48
+    // 22/06/2026 18:50:48
+    const m = texto.match(/(\d{2})\/(\d{2})\/(\d{4})/);
 
-    const dia = Number(partes[0]);
-    const mes = Number(partes[1]) - 1;
-    const ano = Number(partes[2]);
+    if (!m) return null;
 
-    return new Date(ano, mes, dia);
+    const dia = Number(m[1]);
+    const mes = Number(m[2]) - 1;
+    const ano = Number(m[3]);
+
+    const d = new Date(ano, mes, dia);
+
+    if (isNaN(d.getTime())) return null;
+
+    return d;
   } catch {
     return null;
   }
@@ -162,14 +217,24 @@ function diferencaDias(dataAntiga, dataAtual) {
 }
 
 function limparHistoricoAntigo() {
-  const hoje = hojeBrasilData();
+  const agora = Date.now();
+  const limiteMs = DIAS_HISTORICO * 24 * 60 * 60 * 1000;
+
+  garantirTimestampHistorico();
 
   historicoPagamentos = historicoPagamentos.filter(p => {
-    const dataRegistro = extrairDataBR(p.data);
-    if (!dataRegistro) return true;
+    const ts = extrairTimestampRegistro(p);
 
-    const dias = diferencaDias(dataRegistro, hoje);
-    return dias <= DIAS_HISTORICO;
+    // Segurança: se não conseguir entender a data, NÃO apaga.
+    if (!ts) return true;
+
+    const idadeMs = agora - ts;
+
+    // Segurança: se por algum motivo a data estiver no futuro, NÃO apaga.
+    if (idadeMs < 0) return true;
+
+    // Mantém somente os registros dentro dos últimos 30 dias.
+    return idadeMs <= limiteMs;
   });
 }
 
@@ -347,7 +412,7 @@ button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;backgro
 }
 
 app.get("/", (req, res) => {
-  res.send("Servidor PIX da Ducha Online - V5.38");
+  res.send("Servidor PIX da Ducha Online - V5.39");
 });
 
 app.get("/status", (req, res) => {
@@ -356,7 +421,7 @@ app.get("/status", (req, res) => {
 
   res.json({
     sistema: "DUCHA PIX",
-    versao: "5.38",
+    versao: "5.39",
     online: true,
     limpezaAutomaticaDias: DIAS_HISTORICO,
     ultimoPagamentoId,
@@ -546,6 +611,7 @@ app.get("/confirmar-liberacao", (req, res) => {
       valor,
       tipo: "PIX",
       data: agoraBrasilTexto(),
+      timestamp: timestampAgora(),
       status: "ENTREGUE"
     });
   }
@@ -579,6 +645,7 @@ function registrarSenha(req, res) {
     senha: senha || "-",
     ducha: ducha || "-",
     data: agoraBrasilTexto(),
+    timestamp: timestampAgora(),
     status: "ENTREGUE"
   });
 
@@ -792,7 +859,7 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
 </head>
 <body>
 <div class="card">
-  <h1>Painel Administrativo - Ducha PIX V5.38</h1>
+  <h1>Painel Administrativo - Ducha PIX V5.39</h1>
   <div class="aviso">Limpeza automática: histórico dos últimos ${DIAS_HISTORICO} dias</div>
 
   <div class="info">
