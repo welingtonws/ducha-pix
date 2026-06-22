@@ -13,6 +13,7 @@ const SENHA_PAINEL = process.env.SENHA_PAINEL || "231075";
 const TOKEN_PAINEL = process.env.TOKEN_PAINEL || "ducha_pix_logado";
 
 const ARQUIVO_DADOS = path.join(__dirname, "dados.json");
+const TIMEZONE_BRASIL = "America/Sao_Paulo";
 
 let ultimoPagamentoId = null;
 let pagamentosPendentes = [];
@@ -62,6 +63,37 @@ function valorPixSeguro(req) {
   if (valor < 5) valor = 5;
   if (valor > 50) valor = 50;
   return Number(valor.toFixed(2));
+}
+
+function agoraBrasilTexto() {
+  return new Date().toLocaleString("pt-BR", {
+    timeZone: TIMEZONE_BRASIL,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+}
+
+function hojeBrasilData() {
+  const partes = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: TIMEZONE_BRASIL,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).formatToParts(new Date());
+
+  const mapa = {};
+  partes.forEach(p => { mapa[p.type] = p.value; });
+
+  return new Date(
+    Number(mapa.year),
+    Number(mapa.month) - 1,
+    Number(mapa.day)
+  );
 }
 
 function formatarMoeda(valor) {
@@ -122,11 +154,11 @@ function mesmoMes(dataA, dataB) {
 }
 
 function resumoFinanceiro() {
-  const hoje = new Date();
-  const ontem = new Date();
+  const hoje = hojeBrasilData();
+  const ontem = new Date(hoje);
   ontem.setDate(hoje.getDate() - 1);
 
-  const mesAnterior = new Date();
+  const mesAnterior = new Date(hoje);
   mesAnterior.setMonth(hoje.getMonth() - 1);
 
   let totalHoje = 0;
@@ -250,7 +282,7 @@ button{width:95%;padding:15px;margin-top:15px;border:0;border-radius:8px;backgro
 }
 
 app.get("/", (req, res) => {
-  res.send("Servidor PIX da Ducha Online - V5.35");
+  res.send("Servidor PIX da Ducha Online - V5.36");
 });
 
 app.get("/status", (req, res) => {
@@ -259,7 +291,7 @@ app.get("/status", (req, res) => {
 
   res.json({
     sistema: "DUCHA PIX",
-    versao: "5.35",
+    versao: "5.36",
     online: true,
     ultimoPagamentoId,
     pendentes: pagamentosPendentes.length,
@@ -441,7 +473,7 @@ app.get("/confirmar-liberacao", (req, res) => {
     historicoPagamentos.unshift({
       pagamentoId,
       valor,
-      data: new Date().toLocaleString("pt-BR"),
+      data: agoraBrasilTexto(),
       status: "ENTREGUE"
     });
 
@@ -494,7 +526,7 @@ app.get("/exportar-historico", (req, res) => {
   if (!exigirPainel(req, res)) return;
 
   const dados = {
-    exportadoEm: new Date().toLocaleString("pt-BR"),
+    exportadoEm: agoraBrasilTexto(),
     total: historicoPagamentos.length,
     totalFaturado: totalFaturado(),
     pagamentos: historicoPagamentos
@@ -632,7 +664,7 @@ td{padding:12px;border-bottom:1px solid #244;text-align:center}
 </head>
 <body>
 <div class="card">
-  <h1>Painel Administrativo - Ducha PIX V5.35</h1>
+  <h1>Painel Administrativo - Ducha PIX V5.36</h1>
 
   <div class="info">
     <div class="box">Pendentes: ${pagamentosPendentes.length}</div>
